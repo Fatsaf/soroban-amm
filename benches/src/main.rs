@@ -1,4 +1,4 @@
-use std::{env as std_env, fs, process};
+use std::{collections::BTreeMap, env as std_env, fs, process};
 
 use amm::{AmmPool, AmmPoolClient};
 use batch_auction::{BatchAuction, BatchAuctionClient};
@@ -19,6 +19,9 @@ use token::{LpToken, LpTokenClient};
 
 const REGRESSION_BPS: u128 = 500;
 const BASELINE_PATH: &str = "benches/baseline.json";
+const ALLOWLIST_PATH: &str = "benches/allowlist.json";
+const DEFAULT_HEADROOM_PCT: u64 = 60;
+const TX_MAX_INSTRUCTIONS: u64 = 100_000_000;
 
 #[derive(Clone)]
 struct Metric {
@@ -26,6 +29,8 @@ struct Metric {
     cpu_instructions: u64,
     mem_bytes: u64,
 }
+
+type Allowlist = BTreeMap<String, String>;
 
 #[contracttype]
 enum ReceiverDataKey {
@@ -106,7 +111,8 @@ impl BenchFlashLoanReceiver {
 
 fn main() {
     let args: Vec<String> = std_env::args().collect();
-    let metrics = run_all();
+    let native = args.iter().any(|arg| arg == "--native");
+    let metrics = run_all(native);
     let json = render_json(&metrics);
 
     if args.iter().any(|arg| arg == "--write-baseline") {
@@ -115,17 +121,41 @@ fn main() {
     }
 
     println!("{json}");
+    print_limit_table(&metrics);
+
+    if let Ok(summary_path) = std_env::var("GITHUB_STEP_SUMMARY") {
+        let baseline = fs::read_to_string(BASELINE_PATH).unwrap_or_default();
+        let table = render_summary_table(&metrics, &baseline);
+        fs::write(summary_path, table).expect("write step summary");
+    }
 
     if args.iter().any(|arg| arg == "--check") {
         let baseline = fs::read_to_string(BASELINE_PATH).expect("read benches/baseline.json");
+        let allowlist = load_allowlist(ALLOWLIST_PATH);
+        let headroom = parse_headroom(&args).unwrap_or(DEFAULT_HEADROOM_PCT);
         if let Err(message) = check_regressions(&metrics, &baseline) {
+            eprintln!("{message}");
+            process::exit(1);
+        }
+        if let Err(message) = check_headroom(&metrics, headroom, &allowlist) {
+            eprintln!("{message}");
+            process::exit(1);
+        }
+        if let Err(message) = check_stale_baseline(&metrics, &baseline) {
             eprintln!("{message}");
             process::exit(1);
         }
     }
 }
 
-fn run_all() -> Vec<Metric> {
+fn parse_headroom(args: &[String]) -> Option<u64> {
+    args.iter()
+        .position(|arg| arg == "--headroom-pct")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|s| s.parse().ok())
+}
+
+fn run_all(native: bool) -> Vec<Metric> {
     let mut metrics = vec![
         measure("amm.swap", bench_amm_swap),
         measure("amm.add_liquidity", bench_amm_add_liquidity),
@@ -182,6 +212,44 @@ fn run_all() -> Vec<Metric> {
         ));
     }
     metrics.push(measure("factory.create_pool", bench_factory_create_pool));
+
+    // Scaling benches for state-dependent hot paths.
+    for n in BATCH_OPS {
+        metrics.push(measure(
+            format!("batch_router.execute_batch.ops_{n}"),
+            move |env| bench_batch_router_execute(env, n),
+        ));
+    }
+    for n in ORACLE_SOURCES {
+        metrics.push(measure(
+            format!("oracle_aggregator.get_price.sources_{n}"),
+            move |env| bench_oracle_get_price(env, n),
+        ));
+    }
+    for n in TWAP_POOLS {
+        metrics.push(measure(
+            format!("twap_consumer.get_twap_all.pools_{n}"),
+            move |env| bench_twap_get_all(env, n),
+        ));
+    }
+    for n in RESERVE_ENTRIES {
+        metrics.push(measure(
+            format!("reserve_manager.check_reserves_batch.entries_{n}"),
+            move |env| bench_reserve_check(env, n),
+        ));
+    }
+    for n in STAKER_COUNTS {
+        metrics.push(measure(
+            format!("staking.stake.stakers_{n}"),
+            move |env| bench_staking_stake_scaled(env, n),
+        ));
+    }
+    for depth in DELEGATION_DEPTHS {
+        metrics.push(measure(
+            format!("governance.vote.delegation_depth_{depth}"),
+            move |env| bench_governance_vote_delegated(env, depth),
+        ));
+    }
     metrics
 }
 
@@ -189,6 +257,18 @@ fn run_all() -> Vec<Metric> {
 const HOP_COUNTS: [u32; 3] = [1, 2, 3];
 /// Number of initialized ticks crossed for the tick-walk-dependent CL paths.
 const TICK_CROSSINGS: [i32; 3] = [1, 4, 8];
+/// Operation counts for batch_router.execute_batch (cap is 200).
+const BATCH_OPS: [u32; 2] = [50, 200];
+/// Source counts for oracle_aggregator price reads.
+const ORACLE_SOURCES: [u32; 2] = [3, 8];
+/// Pool counts for twap_consumer.get_twap_all (cap is 100).
+const TWAP_POOLS: [u32; 2] = [10, 100];
+/// Entry counts for reserve_manager.check_reserves_batch (cap is 50).
+const RESERVE_ENTRIES: [u32; 2] = [10, 50];
+/// Staker registry sizes for staking.
+const STAKER_COUNTS: [u32; 2] = [50, 400];
+/// Delegation depths for governance.vote.
+const DELEGATION_DEPTHS: [u32; 2] = [3, 8];
 
 fn measure(name: impl Into<String>, f: impl FnOnce(&Env)) -> Metric {
     let name = name.into();
@@ -760,19 +840,132 @@ fn render_json(metrics: &[Metric]) -> String {
     out
 }
 
+fn parse_baseline(text: &str) -> BTreeMap<String, (u64, u64)> {
+    let mut out = BTreeMap::new();
+    let mut name: Option<String> = None;
+    let mut cpu: Option<u64> = None;
+    let mut mem: Option<u64> = None;
+    for raw in text.lines() {
+        let line = raw.trim();
+        if let Some(rest) = line.strip_prefix("\"name\":") {
+            let v = rest.trim().trim_end_matches(',').trim_matches('"');
+            name = Some(v.to_string());
+        } else if let Some(rest) = line.strip_prefix("\"cpu_instructions\":") {
+            cpu = rest.trim().trim_end_matches(',').parse().ok();
+        } else if let Some(rest) = line.strip_prefix("\"mem_bytes\":") {
+            mem = rest.trim().trim_end_matches(',').parse().ok();
+        }
+        if line.starts_with('}') {
+            if let (Some(n), Some(c), Some(m)) = (name.take(), cpu.take(), mem.take()) {
+                out.insert(n, (c, m));
+            }
+        }
+    }
+    out
+}
+
+fn load_allowlist(path: &str) -> Allowlist {
+    let Ok(text) = fs::read_to_string(path) else {
+        return Allowlist::new();
+    };
+    let mut out = Allowlist::new();
+    let mut name: Option<String> = None;
+    for raw in text.lines() {
+        let line = raw.trim();
+        if let Some(rest) = line.strip_prefix("\"name\":") {
+            name = Some(rest.trim().trim_end_matches(',').trim_matches('"').to_string());
+        } else if let Some(rest) = line.strip_prefix("\"reason\":") {
+            if let Some(n) = name.take() {
+                let reason = rest.trim().trim_end_matches(',').trim_matches('"').to_string();
+                out.insert(n, reason);
+            }
+        }
+    }
+    out
+}
+
+fn limit_pct(cpu: u64) -> u64 {
+    (cpu as u128 * 100 / TX_MAX_INSTRUCTIONS as u128) as u64
+}
+
+fn print_limit_table(metrics: &[Metric]) {
+    eprintln!("{:<48} {:>14} {:>8}", "name", "instructions", "% limit");
+    for m in metrics {
+        eprintln!(
+            "{:<48} {:>14} {:>7}%",
+            m.name,
+            m.cpu_instructions,
+            limit_pct(m.cpu_instructions)
+        );
+    }
+}
+
+fn render_summary_table(metrics: &[Metric], baseline: &str) -> String {
+    let base = parse_baseline(baseline);
+    let mut out = String::from("| name | instructions | % of limit | delta vs baseline |\n");
+    out.push_str("| --- | ---: | ---: | ---: |\n");
+    for m in metrics {
+        let delta = match base.get(&m.name) {
+            Some((cpu, _)) if *cpu > 0 => {
+                let d = (m.cpu_instructions as i128 - *cpu as i128) * 10_000 / *cpu as i128;
+                format!("{:+.2}%", d as f64 / 100.0)
+            }
+            _ => "n/a".to_string(),
+        };
+        out.push_str(&format!(
+            "| {} | {} | {}% | {} |\n",
+            m.name,
+            m.cpu_instructions,
+            limit_pct(m.cpu_instructions),
+            delta
+        ));
+    }
+    out
+}
+
+fn check_headroom(metrics: &[Metric], threshold: u64, allowlist: &Allowlist) -> Result<(), String> {
+    for m in metrics {
+        let pct = limit_pct(m.cpu_instructions);
+        if pct > threshold && !allowlist.contains_key(&m.name) {
+            return Err(format!(
+                "{} uses {}% of the per-transaction instruction limit (threshold {}%).\n\
+                 Add it to {} with a justification, or reduce its cost.",
+                m.name, pct, threshold, ALLOWLIST_PATH
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn check_stale_baseline(metrics: &[Metric], baseline: &str) -> Result<(), String> {
+    let base = parse_baseline(baseline);
+    let current: std::collections::BTreeSet<&str> =
+        metrics.iter().map(|m| m.name.as_str()).collect();
+    let mut stale: Vec<&String> = base.keys().filter(|k| !current.contains(k.as_str())).collect();
+    if !stale.is_empty() {
+        stale.sort();
+        return Err(format!(
+            "baseline contains entries with no matching bench: {:?}\n\
+             Regenerate with: cargo run -p benches -- --write-baseline",
+            stale
+        ));
+    }
+    Ok(())
+}
+
 fn check_regressions(metrics: &[Metric], baseline: &str) -> Result<(), String> {
+    let base = parse_baseline(baseline);
     for metric in metrics {
-        let cpu = read_baseline_value(baseline, &metric.name, "cpu_instructions")
-            .ok_or_else(|| format!("missing baseline CPU metric for {}", metric.name))?;
-        let mem = read_baseline_value(baseline, &metric.name, "mem_bytes")
-            .ok_or_else(|| format!("missing baseline memory metric for {}", metric.name))?;
+        let (cpu, mem) = base
+            .get(&metric.name)
+            .ok_or_else(|| format!("missing baseline metric for {}", metric.name))?;
         assert_within(
             &metric.name,
             "cpu_instructions",
             metric.cpu_instructions,
-            cpu,
+            *cpu,
         )?;
-        assert_within(&metric.name, "mem_bytes", metric.mem_bytes, mem)?;
+        assert_within(&metric.name, "mem_bytes", metric.mem_bytes, *mem)?;
     }
     Ok(())
 }
@@ -790,17 +983,4 @@ fn assert_within(name: &str, key: &str, current: u64, baseline: u64) -> Result<(
         ));
     }
     Ok(())
-}
-
-fn read_baseline_value(text: &str, name: &str, key: &str) -> Option<u64> {
-    let name_pos = text.find(&format!("\"name\": \"{name}\""))?;
-    let after_name = &text[name_pos..];
-    let key_pos = after_name.find(&format!("\"{key}\":"))?;
-    let after_key = &after_name[key_pos + key.len() + 3..];
-    let digits: String = after_key
-        .chars()
-        .skip_while(|c| c.is_whitespace())
-        .take_while(|c| c.is_ascii_digit())
-        .collect();
-    digits.parse().ok()
 }

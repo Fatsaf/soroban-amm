@@ -85,6 +85,17 @@ jobs:
               run: cargo test -p integration_tests upgrade
             - name: Run hot-path benchmarks
               run: cargo run -p benches -- --check
+            # The benchmark gate above enforces per-entry regression and
+            # headroom limits; this step publishes the human-readable table
+            # (name, instructions, % of per-transaction limit, delta vs
+            # baseline) to the job summary so reviewers can see the numbers
+            # without digging through the log. It re-runs the benches in
+            # report mode, which is cheap relative to the full test suite and
+            # keeps the summary in sync with the baseline the gate just
+            # validated.
+            - name: Write benchmark summary
+              if: always()
+              run: cargo run -p benches -- --summary >> "$GITHUB_STEP_SUMMARY"
             - name: Clippy
               run: cargo clippy --workspace --all-targets --exclude amm_fuzz -- -D warnings
             - name: Format check

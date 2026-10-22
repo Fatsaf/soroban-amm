@@ -1,0 +1,23 @@
+{
+  "$comment": "Entries in this file exempt a bench metric from the headroom check in `$cargo run -p benches -- --check`. Every entry MUST include a `reason` string and an `issue` link tracking the work to remove the exception. Entries without both fields are rejected by the checker.",
+  "allow": [
+    {
+      "name": "dex_aggregator.swap_best.hops_2",
+      "reason": "Aggregator swap_best over 2 hops is at ~%86 of the per-transaction instruction limit; the max_hops bound and path-search cost reduction are tracked in the aggregator hardening issue. This entry is allowed until that lands.",
+      "issue": "https://github.com/Stellar-Anchors/soroban-aggregator/issues/1",
+      "max_limit_pct": 90
+    },
+    {
+      "name": "dex_aggregator.swap_best.hops_3",
+      "reason": "Same as the hops_2 entry: the aggregator currently has no max_hops cap, so this size exceeds the headroom threshold by design. Tracked by the aggregator hardening issue.",
+      "issue": "https://github.com/Stellar-Anchors/soroban-aggregator/issues/1",
+      "max_limit_pct": 100
+    },
+    {
+      "name": "router.swap_exact_in.hops_3",
+      "reason": "Router has no path-length cap; a three-hop path is at ~35% of the limit and the slope is ~11.7M per hop. The path-length cap is tracked in the router path-length issue.",
+      "issue": "https://github.com/Stellar-Anchors/soroban-router/issues/1",
+      "max_limit_pct": 60
+    }
+  ]
+}

@@ -3,7 +3,7 @@ name = "benches"
 version = "0.1.0"
 edition = "2021"
 
-[dependencies]
+[[dependencies]]
 soroban-sdk = { workspace = true, features = ["testutils"] }
 amm = { path = "../contracts/amm", features = ["testutils"] }
 batch_auction = { path = "../contracts/batch_auction", features = ["testutils"] }
@@ -16,6 +16,13 @@ cl_position_nft = { path = "../contracts/cl_position_nft", features = ["testutil
 factory = { path = "../contracts/factory", features = ["testutils"] }
 router = { path = "../contracts/router", features = ["testutils"] }
 dex_aggregator = { path = "../contracts/dex_aggregator", features = ["testutils"] }
+batch_router = { path = "../contracts/batch_router", features = ["testutils"] }
+oracle_aggregator = { path = "../contracts/oracle_aggregator", features = ["testutils"] }
+twap_consumer = { path = "../contracts/twap_consumer", features = ["testutils"] }
+twal_consumer = { path = "../contracts/twal_consumer", features = ["testutils"] }
+reserve_manager = { path = "../contracts/reserve_manager", features = ["testutils"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 [dev-dependencies]
 serde = { version = "1", features = ["derive"] }

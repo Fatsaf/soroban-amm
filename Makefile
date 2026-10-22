@@ -110,8 +110,11 @@ audit: ## Run a security audit of dependencies (cargo install cargo-audit if mis
 
 check: fmt lint test check-docs check-branch-protection check-storage-keys check-deploy-scripts size-check doc ## Run the checks CI enforces before pushing
 
-bench: ## Run hot-path benchmarks
+bench: ## Run hot-path benchmarks against WASM-registered contracts (CI gate)
 	cargo run -p benches -- --check
+
+bench-native: ## Run hot-path benchmarks against natively-registered contracts (quick local runs)
+	cargo run -p benches -- --native
 
 deploy: ## Deploy contracts via scripts/deploy.sh
 	bash scripts/deploy.sh
