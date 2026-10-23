@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Fixed
+- `pol_vesting::create_vesting` rejects an LP token that the given `pool` does not administer, with the new `VestingError::LpTokenMismatch = 13`. A mistyped pair used to create a schedule for a token the pool never issued (#1136).
+- `pol_vesting` schedules outlive the default 180-day bump. A schedule is stored with a TTL covering its `end_ledger` plus a claim window, clamped to the network maximum. Reads of a schedule refresh it and its token's committed total, and the instance is refreshed to the network maximum (#1136).
+- `pol_vesting` gains a governance-gated `upgrade(governance, new_wasm_hash)` that emits `upgraded`, and `initialize` emits an `initialized` event with the stored governance and treasury addresses. The deploy module reads both back and aborts on a mismatch (#1136).
 - `soroban_amm_sdk::events::decode_amm_event` returned `None` for the two most common AMM events. `swap` and `swap_exact_out` publish four fields (`swap_fot` adds the referrer as a fifth), and `flash_loan` publishes both tokens' amounts and fees. The decoder expected a five-field swap and a three-field flash loan, so an indexer built on it silently dropped every ordinary swap and every flash loan (#1149). It now accepts both swap shapes by field count and decodes the four-field flash loan.
 - **Breaking (SDK only):** `FlashLoanEvent` is now `{ receiver, amount_a, amount_b, fee_a, fee_b }`. The old `{ token, amount, fee }` shape never matched an event the contract emits, so nothing decoded into it correctly.
 - The `soroban_amm_sdk` test modules that were feature-gated behind a `testutils` feature nothing enables (`version_test`, `examples`) now run under `cargo test`. The orphaned `src/events_test.rs`, which used a stale API and did not compile, is removed.
