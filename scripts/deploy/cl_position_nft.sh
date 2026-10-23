@@ -73,6 +73,9 @@ deploy_cl_position_nft() {
   fi
 
   CURRENT_STEP="verify cl_position_nft"
+  if ! cl_position_nft_admin_is "$CL_POSITION_NFT_CONTRACT_ID" "$ADMIN_ADDRESS"; then
+    die "cl_position_nft $CL_POSITION_NFT_CONTRACT_ID verification failed: admin is not $ADMIN_ADDRESS"
+  fi
   if ! cl_position_nft_pool_is "$CL_POSITION_NFT_CONTRACT_ID" "$CL_POOL_CONTRACT_ID"; then
     die "cl_position_nft $CL_POSITION_NFT_CONTRACT_ID verification failed: cl_pool is not $CL_POOL_CONTRACT_ID"
   fi
@@ -80,6 +83,13 @@ deploy_cl_position_nft() {
     die "CL pool $CL_POOL_CONTRACT_ID verification failed: position_nft is not $CL_POSITION_NFT_CONTRACT_ID"
   fi
   log "verified cl_position_nft $CL_POSITION_NFT_CONTRACT_ID and CL pool $CL_POOL_CONTRACT_ID point at each other"
+}
+
+# cl_position_nft_admin_is NFT ADMIN — true when the NFT's admin is ADMIN.
+cl_position_nft_admin_is() {
+  local out
+  out=$(invoke_read "$1" admin 2>/dev/null || true)
+  [[ "$(printf '%s\n' "$out" | grep -Eo '[GC][A-Z0-9]{55}' | tail -n 1)" == "$2" ]]
 }
 
 # cl_position_nft_pool_is NFT POOL — true when the NFT's cl_pool is POOL.

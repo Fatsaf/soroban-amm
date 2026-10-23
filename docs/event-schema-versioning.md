@@ -694,6 +694,11 @@ count. Events marked unversioned carry their payload without the
 
 | Event | Topics | Payload fields | Envelope |
 |---|---|---|---|
+| `initialized` | 1 | `admin`, `cl_pool` | v1 |
+| `admin_nominated` | 1 | `current_admin`, `new_admin` | v1 |
+| `admin_transferred` | 1 | `new_admin` | v1 |
+| `upgraded` | 1 | `new_wasm_hash` | v1 |
+| `pool_changed` | 1 | `old_pool`, `new_pool` | v1 |
 | `nft_mint` | 2 | `token_id` | v1 |
 | `nft_burn` | 2 | `token_id` | v1 |
 | `approve` | 3 | `token_id` | v1 |
@@ -835,6 +840,8 @@ count. Events marked unversioned carry their payload without the
 | `released` | 1 | `beneficiary`, `schedule_id`, `releasable` | v1 |
 | `beneficiary_changed` | 1 | `old_beneficiary`, `old_schedule_id`, `new_beneficiary`, `new_schedule_id` | v1 |
 | `vesting_revoked` | 1 | `beneficiary`, `schedule_id`, `to_beneficiary`, `to_treasury` | v1 |
+| `initialized` | 1 | `governance`, `treasury` | v1 |
+| `upgraded` | 1 | `new_wasm_hash` | v1 |
 
 ### `reserve_manager`
 

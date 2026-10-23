@@ -4778,7 +4778,7 @@ fn setup_pool_with_emergency_delay(fee_bps: i128, delay_secs: u64) -> TestSetup 
     }
 }
 
-fn seed_pool(ts: &TestSetup) -> i128 {
+pub(crate) fn seed_pool(ts: &TestSetup) -> i128 {
     let amm = AmmPoolClient::new(&ts.env, &ts.amm_addr);
     let ta_sac = StellarAssetClient::new(&ts.env, &ts.ta_addr);
     let tb_sac = StellarAssetClient::new(&ts.env, &ts.tb_addr);
