@@ -968,7 +968,7 @@ fn bench_twal_get_all(env: &Env, pools: u32) {
 fn bench_batch_router_execute(env: &Env, ops: u32) {
     let chain = setup_pool_chain(env, 1);
     let router = BatchRouterClient::new(env, &env.register_contract(None, BatchRouter));
-    router.initialize(&chain.factory.address);
+    router.initialize(&chain.admin, &chain.factory.address);
     let token_in = chain.tokens.get(0).unwrap();
     let token_out = chain.tokens.get(1).unwrap();
     let pool = chain.factory.get_pool(&token_in, &token_out).unwrap();
