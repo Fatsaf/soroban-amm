@@ -8155,6 +8155,39 @@
       },
       {
         "function_v0": {
+          "doc": "Replace the contract WASM. State is preserved; the new WASM must already be uploaded.",
+          "inputs": [
+            {
+              "doc": "",
+              "name": "new_wasm_hash",
+              "type_": {
+                "bytes_n": {
+                  "n": 32
+                }
+              }
+            }
+          ],
+          "name": "upgrade",
+          "outputs": [
+            {
+              "result": {
+                "error_type": {
+                  "udt": {
+                    "name": "NftError"
+                  }
+                },
+                "ok_type": {
+                  "tuple": {
+                    "value_types": []
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "function_v0": {
           "doc": "Returns the owner of `token_id`, or [`NftError::TokenNotFound`].",
           "inputs": [
             {
@@ -8247,13 +8280,19 @@
           "cases": [
             {
               "void_v0": {
-                "doc": "Admin address, set once during `initialize`. Instance storage.",
+                "doc": "Current admin address. Instance storage.",
                 "name": "Admin"
               }
             },
             {
               "void_v0": {
-                "doc": "Registered cl_pool contract, set once during `initialize`. Instance storage.",
+                "doc": "Proposed successor admin. Instance storage.",
+                "name": "PendingAdmin"
+              }
+            },
+            {
+              "void_v0": {
+                "doc": "Registered cl_pool contract. Instance storage.",
                 "name": "ClPool"
               }
             },
@@ -8261,6 +8300,12 @@
               "void_v0": {
                 "doc": "Monotonically-increasing counter; next token id to assign. Instance storage.",
                 "name": "NextTokenId"
+              }
+            },
+            {
+              "void_v0": {
+                "doc": "Number of burned token ids. Instance storage.",
+                "name": "BurnedCount"
               }
             },
             {
@@ -8287,6 +8332,15 @@
                 "name": "OperatorApproval",
                 "type_": [
                   "address",
+                  "address"
+                ]
+              }
+            },
+            {
+              "tuple_v0": {
+                "doc": "Whether an address accepts incoming NFT transfers; absent means true.",
+                "name": "AcceptTransfers",
+                "type_": [
                   "address"
                 ]
               }
@@ -8459,6 +8513,26 @@
               "doc": "#697: `mint` would push an owner's new-index holdings past\\n`MAX_POSITIONS_PER_OWNER`.",
               "name": "TooManyPositions",
               "value": 7
+            },
+            {
+              "doc": "",
+              "name": "ReceiverRefused",
+              "value": 8
+            },
+            {
+              "doc": "",
+              "name": "NoPendingAdmin",
+              "value": 9
+            },
+            {
+              "doc": "",
+              "name": "WrongAdmin",
+              "value": 10
+            },
+            {
+              "doc": "",
+              "name": "InvalidAddress",
+              "value": 11
             }
           ],
           "doc": "",
@@ -8484,6 +8558,69 @@
       },
       {
         "function_v0": {
+          "doc": "Admin-only migration tool for replacing the pool allowed to mint and burn.",
+          "inputs": [
+            {
+              "doc": "",
+              "name": "admin",
+              "type_": "address"
+            },
+            {
+              "doc": "",
+              "name": "new_pool",
+              "type_": "address"
+            }
+          ],
+          "name": "set_cl_pool",
+          "outputs": [
+            {
+              "result": {
+                "error_type": {
+                  "udt": {
+                    "name": "NftError"
+                  }
+                },
+                "ok_type": {
+                  "tuple": {
+                    "value_types": []
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "function_v0": {
+          "doc": "Accept a pending admin nomination.",
+          "inputs": [
+            {
+              "doc": "",
+              "name": "new_admin",
+              "type_": "address"
+            }
+          ],
+          "name": "accept_admin",
+          "outputs": [
+            {
+              "result": {
+                "error_type": {
+                  "udt": {
+                    "name": "NftError"
+                  }
+                },
+                "ok_type": {
+                  "tuple": {
+                    "value_types": []
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "function_v0": {
           "doc": "Returns the currently-approved address for `token_id`, if any.",
           "inputs": [
             {
@@ -8504,7 +8641,17 @@
       },
       {
         "function_v0": {
-          "doc": "Returns the total number of tokens ever minted (cumulative; not reduced by burns).",
+          "doc": "Returns the number of tokens ever minted, including tokens later burned.",
+          "inputs": [],
+          "name": "total_minted",
+          "outputs": [
+            "u64"
+          ]
+        }
+      },
+      {
+        "function_v0": {
+          "doc": "Returns the number of currently-live position NFTs.",
           "inputs": [],
           "name": "total_supply",
           "outputs": [
@@ -8519,6 +8666,20 @@
           "name": "next_token_id",
           "outputs": [
             "u64"
+          ]
+        }
+      },
+      {
+        "function_v0": {
+          "doc": "Returns the nominated successor admin, if a handover is pending.",
+          "inputs": [],
+          "name": "pending_admin",
+          "outputs": [
+            {
+              "option": {
+                "value_type": "address"
+              }
+            }
           ]
         }
       },
@@ -8544,6 +8705,40 @@
                 "ok_type": {
                   "udt": {
                     "name": "PositionMeta"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "function_v0": {
+          "doc": "Nominate a successor admin. The nominee completes the transfer by calling `accept_admin`.",
+          "inputs": [
+            {
+              "doc": "",
+              "name": "current_admin",
+              "type_": "address"
+            },
+            {
+              "doc": "",
+              "name": "new_admin",
+              "type_": "address"
+            }
+          ],
+          "name": "propose_admin",
+          "outputs": [
+            {
+              "result": {
+                "error_type": {
+                  "udt": {
+                    "name": "NftError"
+                  }
+                },
+                "ok_type": {
+                  "tuple": {
+                    "value_types": []
                   }
                 }
               }
@@ -8611,6 +8806,22 @@
       },
       {
         "function_v0": {
+          "doc": "Returns whether `owner` accepts incoming transfers (true by default).",
+          "inputs": [
+            {
+              "doc": "",
+              "name": "owner",
+              "type_": "address"
+            }
+          ],
+          "name": "accepts_transfers",
+          "outputs": [
+            "bool"
+          ]
+        }
+      },
+      {
+        "function_v0": {
           "doc": "Check if `operator` is approved for all tokens of `owner`.",
           "inputs": [
             {
@@ -8658,6 +8869,25 @@
               }
             }
           ]
+        }
+      },
+      {
+        "function_v0": {
+          "doc": "Set whether this address accepts incoming NFT transfers.",
+          "inputs": [
+            {
+              "doc": "",
+              "name": "owner",
+              "type_": "address"
+            },
+            {
+              "doc": "",
+              "name": "accepts",
+              "type_": "bool"
+            }
+          ],
+          "name": "set_accept_transfers",
+          "outputs": []
         }
       },
       {

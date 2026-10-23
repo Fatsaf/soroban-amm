@@ -318,12 +318,26 @@ Defined in [contracts/cl_position_nft/src/lib.rs](../contracts/cl_position_nft/s
 | Code | Symbol | Cause | Remedy |
 |------|--------|-------|--------|
 | 1 | `AlreadyInitialized` | `initialize` called twice. | Deploy a new NFT contract instead. |
-| 2 | `Unauthorized` | A caller other than the registered `cl_pool` called `mint`/`burn`, or `set_ttl_params`/`migrate_ownership_index` was called by a non-admin (or before `initialize`). | Use the registered pool address (for mint/burn) or the admin address (for the others). |
-| 3 | `TokenNotFound` | `owner_of`, `position_meta`, `burn`, `approve`, or `transfer` referenced a `token_id` that does not exist (never minted, or already burned). | Verify the id with `owner_of`/`total_supply` first. |
+| 2 | `Unauthorized` | A caller other than the registered `cl_pool` called `mint`/`burn`, or an admin-only operation (`propose_admin`, `upgrade`, `set_cl_pool`, `set_ttl_params`, `migrate_ownership_index`) was called by a non-admin or before `initialize`. | Use the registered pool address (for mint/burn) or the current admin address. |
+| 3 | `TokenNotFound` | `owner_of`, `position_meta`, `burn`, `approve`, or `transfer` referenced a `token_id` that does not exist (never minted, or already burned). | Verify token ownership with `owner_of`; `total_supply` is the live token count, and `total_minted` is cumulative. |
 | 4 | `NotOwnerOrApproved` | `transfer` called by an address that is neither the token's owner, its approved address, nor an approved operator for the owner. | Use the owner, an approved address, or an approved operator. |
 | 5 | `InvalidReceiver` | Reserved; not currently returned by any function. | — |
 | 6 | `InvalidTtlConfig` | `set_ttl_params` was called with `bump_to < min_ttl_threshold`. | Ensure `bump_to >= min_ttl_threshold`. |
 | 7 | `TooManyPositions` | `mint` (or the `to` side of `transfer`) would push an owner's O(1)-indexed holdings past `MAX_POSITIONS_PER_OWNER` (10,000). Defence in depth introduced in #697, on top of the O(1) index fix itself. | Transfer or burn existing positions for that owner first. |
+| 8 | `ReceiverRefused` | `transfer` targeted an address that opted out of incoming transfers and did not approve the sender as an operator. | Ask the recipient to opt in or approve the sender as an operator. |
+| 9 | `NoPendingAdmin` | `accept_admin` was called without a pending nomination. | Have the current admin call `propose_admin` first. |
+| 10 | `WrongAdmin` | `accept_admin` was called by an address other than the nominated successor. | Call `accept_admin` from the nominated address. |
+| 11 | `InvalidAddress` | `initialize` used the same admin and CL pool, or `set_cl_pool` selected the current or zero address. | Use distinct admin/pool addresses and a nonzero replacement pool address. |
+
+`initialize` emits a versioned `initialized` event containing `(admin, cl_pool)`;
+deploy tooling must read both values back and compare them with the intended
+addresses. Initialization intentionally does not require admin authorization,
+so verification is the deployment front-run mitigation. Admin changes use
+`propose_admin` / `accept_admin`; `upgrade` and the migration-only
+`set_cl_pool` are admin-gated. `total_supply` reports currently live tokens,
+while `total_minted` preserves the cumulative mint count. Receivers may opt out
+of unsolicited transfers with `set_accept_transfers`; an approved operator can
+still transfer to them.
 
 #697 replaced the single unbounded `OwnedTokens(owner) -> Vec<u64>` per-owner
 list with a constant-cost index (`OwnerTokenCount`, `OwnerTokenByIndex`,
